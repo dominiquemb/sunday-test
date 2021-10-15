@@ -1,0 +1,223 @@
+ <!DOCTYPE html>
+<html>
+  <head>
+   <script src="https://unpkg.com/@microblink/blinkcard-in-browser-sdk@2.4.1/dist/blinkcard-sdk.min.js"></script>
+  </head>
+  <body onload="start();">
+    <h1>Take a snapshot of the current video stream</h1>
+   Click on the Start WebCam button.
+     <p>
+    <button onclick="startWebcam();">Start WebCam</button>
+    <button onclick="stopWebcam();">Stop WebCam</button> 
+       <button onclick="snapshot();">Take Snapshot</button> 
+    </p>
+    <progress id="load-progress" value="0" max="100"></progress>
+
+    <video id="vid" onclick="snapshot(this);" width=400 height=400 id="video" controls autoplay></video>
+  <p>
+
+        Screenshots : <p>
+      <canvas  id="myCanvas" width="400" height="350"></canvas>  
+
+      <img id="cc-img" />
+  </body>
+  <script>
+      //--------------------
+      // GET USER MEDIA CODE
+      //--------------------
+          navigator.getUserMedia = ( navigator.getUserMedia ||
+                             navigator.webkitGetUserMedia ||
+                             navigator.mozGetUserMedia ||
+                             navigator.msGetUserMedia);
+
+      var video;
+      var webcamStream;
+            
+      function startWebcam() {
+        if (navigator.getUserMedia) {
+           navigator.getUserMedia (
+
+              // constraints
+              {
+                 video: true,
+                 audio: false
+              },
+
+              // successCallback
+              function(localMediaStream) {
+                  video = document.querySelector('video');
+                 video.srcObject=localMediaStream;
+                 webcamStream = localMediaStream;
+              },
+
+              // errorCallback
+              function(err) {
+                 console.log("The following error occured: " + err);
+              }
+           );
+        } else {
+           console.log("getUserMedia not supported");
+        }  
+      }
+            
+      function stopWebcam() {
+          webcamStream.stop();
+      }
+      //---------------------
+      // TAKE A SNAPSHOT CODE
+      //---------------------
+      var canvas, ctx, file, wasmSDK, callbacks, recognizer, recognizerRunner, videoRecognizer, progressEl;
+
+      function start() {
+        // Get the canvas and obtain a context for
+        // drawing in it
+        canvas = document.getElementById("myCanvas");
+        progressEl = document.getElementById("load-progress")
+        ctx = canvas.getContext('2d');
+      }
+
+      function convertCanvasToBase64() {
+         const base64Canvas = canvas.toDataURL("image/jpeg").split(';base64,')[1];
+         analyzeImage(base64Canvas);
+      }
+
+      function convertCanvasToBlob() {
+         canvas.toBlob(blob => {
+            file = new File([blob], "slice.png");
+            analyzeImage(file);
+         });
+      }
+
+      async function analyzeImage(blob) {
+         // const form_data  = new FormData();
+         // form_data.append("file", blob, {
+         //    filename: `file.jpg`,
+         //    contentType: 'application/octet-stream'
+         // });
+
+
+         if ( BlinkCardSDK.isBrowserSupported() )
+            {
+               const loadSettings = new BlinkCardSDK.WasmSDKLoadSettings( "sRwAAAYMZG9taW5pcXVlLmNj7qRade+kkRL8zSzufySD1ho07HpxnChRZvOf7IM2L1zlCCl9JXd0MdZv8PrTOQiRUUOgN0W9ZCXLcpK+a8XHxtB4CJd7Fg0aori5wj7jMiJ88p9fsiJuTzOZUDKGUKiDv17eRREIcqyeg8IqWz6qjHmCfcwBV9518nh93CR+OWzovw1+CRiiV8Y=" );
+
+                   // [OPTIONAL] Change default settings
+                  // Show or hide hello message in browser console when WASM is successfully loaded
+                  loadSettings.allowHelloMessage = true;
+                  // In order to provide better UX, display progress bar while loading the SDK
+                  loadSettings.loadProgressCallback = (progress) =>
+                     (progressEl.value = progress);
+                  // Set relative or absolute location of the engine, i.e. WASM and support JS files
+                  loadSettings.engineLocation = "https://unpkg.com/@microblink/blinkcard-in-browser-sdk@2.4.1/resources/";
+
+               BlinkCardSDK.loadWasmModule( loadSettings ).then
+               (
+                  ( wasm ) =>
+                  {
+                        // The SDK was initialized successfully, save the wasmSDK for future use
+                        wasmSDK = wasm;
+                  },
+                  ( error ) =>
+                  {
+                        // Error happened during the initialization of the SDK
+                        console.log( "Error during the initialization of the SDK!", error );
+                  }
+               )
+
+               callbacks = {
+                  onFirstSideResult: () => alert( "Flip the card" ),
+               };
+
+               recognizer = await BlinkCardSDK.createBlinkCardRecognizer( wasmSDK );
+               recognizerRunner = await BlinkCardSDK.createRecognizerRunner(
+                  wasmSDK,
+                  [ recognizer ],
+                  true,
+                  callbacks
+               );
+
+               const base64Canvas = canvas.toDataURL();
+
+               const imageElem = document.getElemenyById("cc-img").src = base64Canvas;
+               await imageElem.decode();
+               const imageFrame = BlinkCardSDK.captureFrame( imageElement );
+               const processResult = await recognizerRunner.processImage( imageFrame );
+
+               if ( processResult !== BlinkCardSDK.RecognizerResultState.Empty )
+               {
+                  const recognitionResult = await recognizer.getResult();
+                  console.log( recognitionResult );
+               }
+               else
+               {
+                  console.log( "Recognition was not successful!" );
+               }
+
+               // const cameraFeed = document.getElementById( "vid" );
+               // try
+               // {
+               //    videoRecognizer = await BlinkCardSDK.VideoRecognizer.createVideoRecognizerFromCameraStream(
+               //       cameraFeed,
+               //       recognizerRunner
+               //    );
+
+               //    // There is more than one way to handle recognition
+
+               //    // Using the recognize() method will provide you with the default behavior,
+               //    // such as built-in error handling, timeout and video feed pausing.
+               //    const processResult = await videoRecognizer.recognize();
+
+               //    // To obtain recognition results see next step
+               // }
+               // catch ( error )
+               // {
+               //    if ( error.name === "VideoRecognizerError" )
+               //    {
+               //       // Reason is of type BlinkCardSDK.NotSupportedReason and contains information why video
+               //       // recognizer could not be used. Usually this happens when user didn't grant access to a
+               //       // camera or when a hardware or OS error occurs.
+               //       const reason = ( error ).reason;
+               //    }
+               // }
+               // videoRecognizer.delete();
+
+               recognizerRunner.delete();
+               recognizer.delete();
+            }
+            else
+            {
+               console.log( "This browser is not supported by the SDK!" );
+            }
+
+         // fetch("http://localhost:3000/analyzeImage", {
+         //    method: "POST", 
+         //    mode: "cors",
+         //    body: form_data,
+         // }).then(res => {
+         //    res.json().then((jsonObj) => {
+         //       console.log(jsonObj);
+         //    });
+         // });
+
+      }
+
+      function downloadCanvasAsImage(){
+         let downloadLink = document.createElement('a');
+         downloadLink.setAttribute('download', 'CanvasAsImage.png');
+         let canvas = document.getElementById('myCanvas');
+         canvas.toBlob(function(blob) {
+            let url = URL.createObjectURL(blob);
+            downloadLink.setAttribute('href', url);
+            downloadLink.click();
+         });
+      }
+
+      function snapshot() {
+         // Draws current image from the video element into the canvas
+          ctx.drawImage(video, 0,0, canvas.width, canvas.height);
+
+         analyzeImage();
+      }
+
+  </script>
+</html>
+
